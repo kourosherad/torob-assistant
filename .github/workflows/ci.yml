@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node 24 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      CATALOG_DB_PATH: data/ci-catalog.db
+      TEST_FIXTURE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Create synthetic catalogue
+        run: node scripts/create-test-catalog.mjs
+      - name: Check formatting
+        run: npm run format:check
+      - name: Check source syntax
+        run: |
+          node --check server.mjs
+          node --check public/app.js
+          node --check lib/workflow.mjs
+      - name: Test catalogue, workflow and HTTP persistence
+        run: npm test
