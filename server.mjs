@@ -31,21 +31,20 @@ async function body(req) {
   }
 }
 function session(req, res) {
-  const candidate = req.headers.cookie
-    ?.split(';')
-    .map((s) => s.trim())
-    .find((s) => s.startsWith('torob_session='))
-    ?.slice(14);
+  const candidate =
+    req.headers['x-torob-session'] ||
+    req.headers.cookie
+      ?.split(';')
+      .map((s) => s.trim())
+      .find((s) => s.startsWith('torob_session='))
+      ?.slice(14);
   if (
     candidate &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate)
   )
     return candidate;
   const id = randomUUID();
-  res.setHeader(
-    'Set-Cookie',
-    `torob_session=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800`,
-  );
+  res.setHeader('Set-Cookie', `torob_session=${id}; HttpOnly; SameSite=Strict; Path=/`);
   return id;
 }
 const lastCalls = new Map();
@@ -87,7 +86,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, present(await workflow.state(id)));
       if (url.pathname === '/api/workflow' && req.method === 'POST') {
         const event = await body(req);
-        if (event.type === 'chat')
+        if (['chat', 'resume'].includes(event.type))
           return send(res, 400, { error: 'برای گفت‌وگو از مسیر دستیار استفاده کن.' });
         return send(res, 200, present(await workflow.run(id, event)));
       }
@@ -118,20 +117,24 @@ const server = http.createServer(async (req, res) => {
         });
       }
       if (url.pathname === '/api/chat' && req.method === 'POST') {
-        if (activeModels >= 2 || Date.now() - (lastCalls.get(id) || 0) < 1500)
+        const input = await body(req);
+        if (activeModels >= 2 || (!input.resume && Date.now() - (lastCalls.get(id) || 0) < 1500))
           return send(res, 429, { error: 'کمی صبر کن؛ درخواست دیگری در حال پردازش است.' });
-        const input = await body(req),
-          message =
-            input.message || input.messages?.filter((m) => m.role === 'user').at(-1)?.content;
+        const message =
+          input.message || input.messages?.filter((m) => m.role === 'user').at(-1)?.content;
         activeModels++;
         lastCalls.set(id, Date.now());
         try {
-          const result = present(await workflow.run(id, { type: 'chat', message }));
+          const result = present(
+            await workflow.run(id, input.resume ? { type: 'resume' } : { type: 'chat', message }),
+          );
           return send(res, result.error ? 502 : 200, { ...result, workflow: result });
         } finally {
           activeModels--;
         }
       }
+      if (url.pathname === '/api/chat/pause' && req.method === 'POST')
+        return send(res, 200, present(await workflow.pause(id)));
       return send(res, 404, { error: 'مسیر پیدا نشد.' });
     }
     const name = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname.slice(1));
