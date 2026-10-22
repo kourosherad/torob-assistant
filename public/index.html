@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#d70040" />
+    <title>همراه ترب | خرید حضوری، با خیال راحت</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="خانه همراه ترب"
+        ><span class="brand-mark">ترب<span>●</span></span
+        ><span class="brand-divider"></span><span>همراه <small>دستیار خرید حضوری</small></span></a
+      >
+      <div class="header-actions">
+        <button class="location-btn" id="locationButton">
+          <span data-icon="pin"></span><span id="locationLabel">تهران، محدوده دلخواه</span
+          ><span data-icon="chevron"></span></button
+        ><span class="demo-label">نسخه هکاتون</span>
+      </div>
+    </header>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="side-top">
+          <span class="eyebrow">از انتخاب تا رسیدن</span>
+          <h2>یه همراه برای<br />خرید بهتر.</h2>
+          <p>نیازت رو بگو؛ با هم گزینه‌ها رو بررسی می‌کنیم.</p>
+        </div>
+        <nav aria-label="مراحل خرید">
+          <button class="nav-item active" data-view="discover">
+            <span data-icon="spark"></span>انتخاب محصول<span class="step-number">۱</span></button
+          ><button class="nav-item" data-view="shops">
+            <span data-icon="store"></span>پیدا کردن فروشگاه<span class="step-number"
+              >۲</span
+            ></button
+          ><button class="nav-item" data-view="trip">
+            <span data-icon="route"></span>برنامه مراجعه<span class="step-number">۳</span>
+          </button>
+        </nav>
+        <div class="side-bottom">
+          <div class="little-dot"></div>
+          <span>داده واقعی، تصمیم آگاهانه</span>
+          <p>قیمت‌های ثبت‌شده نیاز به استعلام دارند.</p>
+          <button id="aboutButton" class="text-button">
+            درباره داده‌ها و نسخه آزمایشی <span>↗</span>
+          </button>
+        </div>
+      </aside>
+      <main>
+        <section id="discoverView">
+          <div class="hero">
+            <div class="hero-copy">
+              <span class="pill"><span data-icon="spark"></span> همراه هوشمند خرید حضوری</span>
+              <h1>انتخابت رو پیدا کن،<br />بعد <em>نزدیکت</em> بخر.</h1>
+              <p>
+                از «چی بخرم؟» تا «کجا برم؟» کنارتیم.<br />مقایسه کن، از فروشگاه مطمئن شو و راه بیفت.
+              </p>
+              <div class="hero-points">
+                <span><span data-icon="check"></span>مقایسه واقعی</span
+                ><span><span data-icon="check"></span>فروشگاه‌های تهران</span
+                ><span><span data-icon="check"></span>خرید اقساطی</span>
+              </div>
+            </div>
+            <div class="hero-art" aria-hidden="true">
+              <div class="art-grid"></div>
+              <div class="orbit orbit-a"></div>
+              <div class="orbit orbit-b"></div>
+              <div class="map-road road-a"></div>
+              <div class="map-road road-b"></div>
+              <div class="map-road road-c"></div>
+              <div class="art-pin small-pin"><span data-icon="pin"></span></div>
+              <div class="art-shop">
+                <div class="awning"><i></i><i></i><i></i><i></i><i></i></div>
+                <div class="shop-front">
+                  <div class="shop-window"></div>
+                  <div class="shop-door"></div>
+                </div>
+                <span>خرید خوب، همین نزدیکی</span>
+              </div>
+              <div class="floating-card float-top">
+                <span class="green-icon" data-icon="check"></span>
+                <div>قبل از رفتن، مطمئن شو<small>استعلام قیمت و موجودی</small></div>
+              </div>
+              <div class="floating-card float-bottom">
+                <span data-icon="route"></span>
+                <div>تا خودِ فروشگاه<small>حتی طبقه و شماره واحد</small></div>
+              </div>
+            </div>
+          </div>
+          <section class="assistant-panel">
+            <div class="assistant-heading">
+              <div class="assistant-avatar" data-icon="spark"></div>
+              <div>
+                <h2>سلام! دنبال چی می‌گردی؟</h2>
+                <p>مدلش رو نمی‌دونی؟ بگو برای چه کاری می‌خوایش.</p>
+              </div>
+              <span class="online"><i></i>دستیار هوشمند</span>
+            </div>
+            <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+            <form id="chatForm">
+              <label class="sr-only" for="chatInput">پیام به دستیار</label
+              ><textarea
+                id="chatInput"
+                rows="1"
+                placeholder="مثلاً یه هدفون برای رفت‌وآمد می‌خوام، تا ۳ میلیون تومان…"
+                maxlength="2000"
+              ></textarea
+              ><button id="sendButton" class="send-btn" aria-label="ارسال به دستیار">
+                <span data-icon="arrow"></span>
+              </button>
+            </form>
+            <div class="suggestions">
+              <button data-prompt="برای پیاده‌روی روزانه کتونی می‌خوام. کمکم کن انتخاب کنم.">
+                کتونی برای پیاده‌روی <span>↖</span></button
+              ><button data-prompt="می‌خوام یک گوشی با دوربین خوب بخرم. چه چیزهایی را مقایسه کنم؟">
+                گوشی با دوربین خوب <span>↖</span></button
+              ><button data-prompt="هدفون برای رفت‌وآمد می‌خوام. کمکم کن مدل مناسب پیدا کنم.">
+                هدفون برای رفت‌وآمد <span>↖</span>
+              </button>
+            </div>
+          </section>
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">یا خودت شروع کن</span>
+              <h2 id="resultsTitle">چی توی لیست خریدته؟</h2>
+            </div>
+            <span class="subtle" id="resultCount">از میان محصولات واقعی ترب</span>
+          </div>
+          <div class="search-toolbar">
+            <form id="searchForm">
+              <span data-icon="search"></span
+              ><input
+                id="searchInput"
+                placeholder="جست‌وجوی کالا، برند یا مدل…"
+                aria-label="جست‌وجوی محصول"
+              /><button type="submit">جست‌وجو</button>
+            </form>
+            <button id="filterButton" class="outline-button">
+              <span data-icon="sliders"></span>فیلترها <span id="filterBadge"></span>
+            </button>
+          </div>
+          <div id="filterPanel" class="filter-panel" hidden>
+            <label
+              >سقف بودجه (تومان)<input
+                id="budgetInput"
+                type="number"
+                min="0"
+                placeholder="مثلاً ۳۰۰۰۰۰۰" /></label
+            ><label class="check-label"
+              ><input id="installmentFilter" type="checkbox" /> فقط فروشگاه دارای اقساط حضوری</label
+            ><button class="primary" id="applyFilters">اعمال فیلتر</button
+            ><button class="text-button" id="clearFilters">پاک کردن</button>
+          </div>
+          <div class="category-tabs" id="categoryTabs">
+            <button class="selected" data-query="هدفون">هدفون و هندزفری</button
+            ><button data-query="گوشی موبایل">گوشی موبایل</button
+            ><button data-query="کفش">کفش و کتونی</button><button data-query="لپ تاپ">لپ‌تاپ</button
+            ><button data-query="قهوه ساز">قهوه‌ساز</button><button data-query="ساعت">ساعت</button>
+          </div>
+          <div id="products" class="product-grid" aria-live="polite"></div>
+          <div class="data-note">
+            <span data-icon="info"></span>قیمت‌ها از دیتاست چالش هستند؛ موجودی و قیمت روز باید پیش
+            از مراجعه تأیید شوند.
+          </div>
+        </section>
+        <section id="shopsView" hidden>
+          <div class="page-heading">
+            <button class="back-button" data-view="discover">← بازگشت به محصولات</button
+            ><span class="eyebrow">قدم دوم · نزدیک‌ترین انتخاب خوب</span>
+            <h1>کجا حضوری بخریم؟</h1>
+            <p>قیمت، مسیر و شرایط خرید رو کنار هم ببین.</p>
+          </div>
+          <div id="selectedProduct"></div>
+          <div class="shop-toolbar">
+            <label
+              >مرتب‌سازی
+              <select id="sortShops">
+                <option value="recommended">پیشنهاد همراه</option>
+                <option value="price">کمترین قیمت</option>
+                <option value="distance">نزدیک‌ترین</option>
+              </select></label
+            ><label class="check-label"
+              ><input type="checkbox" id="shopInstallments" />اقساط حضوری</label
+            ><label class="check-label"
+              ><input type="checkbox" id="openShops" />فقط بازها طبق برنامه</label
+            ><label
+              >شعاع
+              <select id="shopRadius">
+                <option value="">همه تهران</option>
+                <option value="3">۳ کیلومتر</option>
+                <option value="5">۵ کیلومتر</option>
+                <option value="10">۱۰ کیلومتر</option>
+              </select></label
+            >
+          </div>
+          <div class="info-banner">
+            <span data-icon="info"></span
+            ><span id="distanceNote">برای مقایسه فاصله، محدوده‌ات را از بالای صفحه انتخاب کن.</span>
+          </div>
+          <div id="sellers" class="seller-list"></div>
+        </section>
+        <section id="tripView" hidden>
+          <div class="page-heading">
+            <button class="back-button" data-view="shops">← بازگشت به فروشگاه‌ها</button
+            ><span class="eyebrow">قدم سوم · تا خودِ فروشگاه</span>
+            <h1>برنامه مراجعه‌ات</h1>
+            <p>قبل از حرکت، جزئیات رو یک بار بررسی کن.</p>
+          </div>
+          <div id="tripContent"></div>
+        </section>
+        <footer>
+          <span class="footer-brand">همراه ترب</span><span>برای خرید حضوریِ آگاهانه‌تر</span
+          ><span id="statsText"></span>
+        </footer>
+      </main>
+    </div>
+    <div class="compare-bar" id="compareBar" hidden>
+      <span id="compareCount"></span>
+      <div>
+        <button class="text-button" id="clearCompare">پاک کردن</button
+        ><button class="primary" id="compareButton">مقایسه محصولات <span>←</span></button>
+      </div>
+    </div>
+    <dialog id="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle"></h2>
+        <button id="closeModal" class="icon-button" aria-label="بستن">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

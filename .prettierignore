@@ -1,0 +1,5 @@
+data/
+datasets/
+screenshots/
+node_modules/
+package-lock.json
