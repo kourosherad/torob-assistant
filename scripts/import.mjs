@@ -1,4 +1,5 @@
-import { createReadStream, existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { csv } from '../lib/csv.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
 mkdirSync('data', { recursive: true });
@@ -8,7 +9,8 @@ if (existsSync(path) && !process.argv.includes('--force')) {
   process.exit(0);
 }
 const db = new DatabaseSync(path);
-db.exec(`PRAGMA journal_mode=WAL; DROP TABLE IF EXISTS products; DROP TABLE IF EXISTS shops; DROP TABLE IF EXISTS offers;
+db.exec(`PRAGMA journal_mode=WAL; DROP TABLE IF EXISTS products; DROP TABLE IF EXISTS shops; DROP TABLE IF EXISTS offers; DROP TABLE IF EXISTS shop_links;
+CREATE TABLE shop_links(shop_id TEXT PRIMARY KEY,website TEXT,instagram TEXT);
 CREATE TABLE products(product_id TEXT PRIMARY KEY,title TEXT,brand TEXT,category TEXT,images TEXT,model TEXT,specs TEXT,search TEXT);
 CREATE TABLE shops(shop_id TEXT PRIMARY KEY,name TEXT,address TEXT,lat REAL,lon REAL,location TEXT,payments TEXT,hours TEXT,contacts TEXT);
 CREATE TABLE offers(offer_id TEXT PRIMARY KEY,product_id TEXT,shop_id TEXT,price REAL,changed TEXT,title TEXT,description TEXT,warranty TEXT);`);
@@ -18,53 +20,7 @@ const normalize = (s) =>
     .replace(/ك/g, 'ک')
     .replace(/[\u200c\u200f]/g, ' ')
     .toLowerCase();
-async function* csv(file) {
-  let field = '',
-    row = [],
-    quoted = false,
-    pendingQuote = false,
-    header;
-  for await (const chunk of createReadStream(file, { encoding: 'utf8' })) {
-    for (const c of chunk) {
-      if (pendingQuote) {
-        pendingQuote = false;
-        if (c === '"') {
-          field += '"';
-          continue;
-        }
-        quoted = false;
-      }
-      if (quoted) {
-        if (c === '"') pendingQuote = true;
-        else field += c;
-        continue;
-      }
-      if (c === '"') {
-        quoted = true;
-        continue;
-      }
-      if (c === ',') {
-        row.push(field);
-        field = '';
-        continue;
-      }
-      if (c === '\n') {
-        row.push(field.replace(/\r$/, ''));
-        field = '';
-        if (!header) header = row.map((x) => x.replace(/^\uFEFF/, ''));
-        else yield Object.fromEntries(header.map((k, i) => [k, row[i] === 'null' ? null : row[i]]));
-        row = [];
-        continue;
-      }
-      field += c;
-    }
-  }
-  if (field || row.length) {
-    row.push(field.replace(/\r$/, ''));
-    if (header)
-      yield Object.fromEntries(header.map((k, i) => [k, row[i] === 'null' ? null : row[i]]));
-  }
-}
+
 const jobs = [
   [
     'shops',
@@ -117,6 +73,12 @@ for (const [name, sql, map] of jobs) {
   try {
     for await (const r of csv(`datasets/${name}.csv`)) {
       stmt.run(...map(r));
+      if (name === 'shops' && (r.website_url || r.instagram))
+        db.prepare('INSERT INTO shop_links VALUES(?,?,?)').run(
+          r.shop_id,
+          r.website_url,
+          r.instagram,
+        );
       n++;
     }
     db.exec('COMMIT');
