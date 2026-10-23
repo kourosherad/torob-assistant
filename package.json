@@ -16,6 +16,7 @@
   "dependencies": {
     "@langchain/langgraph": "^1.5.2",
     "@langchain/langgraph-checkpoint": "^1.2.1",
+    "@neshan-maps-platform/maplibre-sdk": "^5.24.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {

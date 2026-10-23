@@ -6,10 +6,11 @@ import { db, search, product, sellers, stats } from './lib/catalog.mjs';
 import { SqliteCheckpointer } from './lib/checkpointer.mjs';
 import { createWorkflow, present } from './lib/workflow.mjs';
 import { modelName } from './lib/model.mjs';
+import { drivingRoute } from './lib/neshan.mjs';
 
 const PORT = Number(process.env.PORT) || 3210;
 const checkpointer = new SqliteCheckpointer(process.env.WORKFLOW_DB_PATH || 'data/workflow.db');
-const workflow = createWorkflow({ checkpointer });
+const workflow = createWorkflow({ checkpointer, sellerSimulation: false });
 const send = (res, status, data) => {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -48,6 +49,7 @@ function session(req, res) {
   return id;
 }
 const lastCalls = new Map();
+const routeCache = new Map();
 let activeModels = 0;
 const server = http.createServer(async (req, res) => {
   try {
@@ -55,6 +57,18 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     const url = new URL(req.url, 'http://localhost');
     const p = Object.fromEntries(url.searchParams);
+    const mapAssets = {
+      '/vendor/neshan-map.js': ['neshan-maplibre-sdk.js', 'text/javascript; charset=utf-8'],
+      '/vendor/neshan-map.css': ['neshan-maplibre-sdk.css', 'text/css; charset=utf-8'],
+    };
+    if (mapAssets[url.pathname]) {
+      const [name, type] = mapAssets[url.pathname];
+      const content = await readFile(
+        resolve('node_modules/@neshan-maps-platform/maplibre-sdk/dist', name),
+      );
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' });
+      return res.end(content);
+    }
     if (
       req.method === 'POST' &&
       req.headers.origin &&
@@ -82,6 +96,23 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/product') return send(res, 200, product(p.id));
     if (url.pathname.startsWith('/api/')) {
       const id = session(req, res);
+      if (url.pathname === '/api/p-info/config')
+        return send(res, 200, { mapKey: process.env.NESHAN_MAP_KEY || '' });
+      if (url.pathname === '/api/p-info/route' && req.method === 'POST') {
+        const input = await body(req);
+        const current = present(await workflow.state(id));
+        const offer = current.sellers.find((item) => item.offer_id === input.offerId);
+        const origin = current.preferences.location;
+        if (!offer || !origin)
+          return send(res, 400, { error: 'برای محاسبه مسیر، موقعیت خودت و فروشگاه را انتخاب کن.' });
+        const cacheKey = [id, offer.offer_id, origin.lat, origin.lon].join(':');
+        const cached = routeCache.get(cacheKey);
+        if (cached && Date.now() - cached.time < 120000) return send(res, 200, cached.route);
+        const route = await drivingRoute(origin, { lat: offer.lat, lon: offer.lon });
+        if (routeCache.size >= 100) routeCache.delete(routeCache.keys().next().value);
+        routeCache.set(cacheKey, { time: Date.now(), route });
+        return send(res, 200, route);
+      }
       if (url.pathname === '/api/session' && req.method === 'GET')
         return send(res, 200, present(await workflow.state(id)));
       if (url.pathname === '/api/workflow' && req.method === 'POST') {
@@ -126,7 +157,12 @@ const server = http.createServer(async (req, res) => {
         lastCalls.set(id, Date.now());
         try {
           const result = present(
-            await workflow.run(id, input.resume ? { type: 'resume' } : { type: 'chat', message }),
+            await workflow.run(
+              id,
+              input.resume
+                ? { type: 'resume' }
+                : { type: 'chat', message, displayContent: input.displayContent },
+            ),
           );
           return send(res, result.error ? 502 : 200, { ...result, workflow: result });
         } finally {

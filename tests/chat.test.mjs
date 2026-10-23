@@ -180,7 +180,7 @@ test('button behavior distinguishes pause, resume and a new message', () => {
   assert.throws(() => cleanQuestions([{ question: 'نامعتبر', options: ['یک گزینه'] }]));
 });
 
-test('final JSON can supply choice questions after the last allowed tool round', async () => {
+test('a completed product search shows its shortlist instead of another questionnaire', async () => {
   const saver = new SqliteCheckpointer(':memory:');
   let count = 0;
   const w = createWorkflow({
@@ -202,8 +202,8 @@ test('final JSON can supply choice questions after the last allowed tool round',
   try {
     const result = present(await w.run('final-json', { type: 'chat', message: 'هدفون می‌خواهم' }));
     assert.equal(count, 3);
-    assert.equal(result.reply, 'کاربردت را انتخاب کن.');
-    assert.equal(result.ui.questions[0].options.length, 3);
+    assert.match(result.reply, /این گزینه‌ها/);
+    assert.equal(result.ui.questions.length, 0);
     assert.ok(result.ui.products.length);
     assert.equal(result.messages.at(-1).content, result.reply);
   } finally {

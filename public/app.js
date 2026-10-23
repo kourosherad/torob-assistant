@@ -1,4 +1,5 @@
 import { chatAction, priceRange } from './chat-controls.js';
+import { createProductInfo } from './p-info.js';
 const $ = (s) => document.querySelector(s),
   $$ = (s) => [...document.querySelectorAll(s)];
 const paths = {
@@ -56,6 +57,18 @@ let state = {
 try {
   state.location = JSON.parse(localStorage.getItem('torob_location'));
 } catch {}
+const pInfo = createProductInfo({
+  api,
+  workflowEvent,
+  getState: () => state,
+  esc,
+  money,
+  fa,
+  date,
+  openLocation,
+  checkShopChallenge,
+  sendChoice: (text, display) => sendChat(text, display),
+});
 async function api(path, data) {
   let sessionId = sessionStorage.getItem('torob_session');
   if (!sessionId) {
@@ -110,13 +123,26 @@ function setView(view) {
     toast('اول یک محصول انتخاب کن تا فروشنده‌هایش را ببینیم.');
     return;
   }
-  state.view = view;
-  document.body.dataset.view = view;
+  state.view = 'discover';
+  document.body.dataset.view = 'discover';
+  $('#discoverView').hidden = false;
   updateCompare();
-  for (const v of ['discover', 'shops', 'trip']) $('#' + v + 'View').hidden = v !== view;
-  $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  if (view === 'trip') renderTrip();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (view === 'shops' || view === 'trip') {
+    if (view === 'trip') renderTrip();
+    const panel = $('#' + view + 'View');
+    let bubble = panel.closest('.inline-chat-panel');
+    if (!bubble) {
+      bubble = addBubble(
+        'assistant',
+        view === 'shops' ? 'فروشگاه‌های این محصول و شرایط خرید' : 'آدرس و اطلاعات مراجعه',
+      );
+      bubble.classList.add('inline-chat-panel');
+      bubble.append(panel);
+    } else $('#chatMessages').append(bubble);
+    panel.hidden = false;
+    document.body.classList.remove('chat-empty');
+    bubble.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 $$('[data-view]').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 function productPicture(p, cls = '') {
@@ -146,29 +172,15 @@ function renderProducts(root, items) {
   root.innerHTML = items
     .map(
       (p) =>
-        `<article class="product-card"><button class="product-image" data-detail="${p.product_id}" aria-label="مشخصات ${esc(p.title)}">${productPicture(p)}</button><span class="product-category">${esc(p.brand || p.category)}</span><h3>${esc(p.title)}</h3><div class="price-row"><span class="product-range">${esc(priceRange(p))}</span></div><p class="seller-count">در ${fa(p.seller_count || 0)} فروشگاه · قیمت ثبت‌شده</p><div class="card-actions"><label class="compare-check"><input type="checkbox" data-compare="${p.product_id}" ${state.compare.has(p.product_id) ? 'checked' : ''}>مقایسه</label><button data-select="${p.product_id}">فروشگاه‌ها ←</button></div></article>`,
+        `<article class="product-card"><button class="product-image" data-detail="${p.product_id}" aria-label="مشخصات ${esc(p.title)}">${productPicture(p)}</button><span class="product-category">${esc(p.brand || p.category)}</span><h3>${esc(p.title)}</h3><div class="price-row"><span class="product-range">${esc(priceRange(p))}</span></div><p class="seller-count">در ${fa(p.seller_count || 0)} فروشگاه · قیمت ثبت‌شده</p><div class="card-actions"><button data-select="${p.product_id}">فروشگاه‌ها ←</button></div></article>`,
     )
     .join('');
   root
     .querySelectorAll('[data-select]')
-    .forEach((b) => (b.onclick = () => selectProduct(b.dataset.select)));
+    .forEach((b) => (b.onclick = () => pInfo.open(b.closest('.product-card'), b.dataset.select)));
   root
     .querySelectorAll('[data-detail]')
-    .forEach((b) => (b.onclick = () => showDetail(b.dataset.detail)));
-  root.querySelectorAll('[data-compare]').forEach(
-    (b) =>
-      (b.onchange = () => {
-        const p = items.find((p) => p.product_id === b.dataset.compare);
-        if (b.checked) {
-          if (state.compare.size === 3) {
-            b.checked = false;
-            return toast('حداکثر سه محصول را با هم مقایسه کن.');
-          }
-          state.compare.set(p.product_id, p);
-        } else state.compare.delete(p.product_id);
-        updateCompare();
-      }),
-  );
+    .forEach((b) => (b.onclick = () => pInfo.open(b.closest('.product-card'), b.dataset.detail)));
   bindImageFallbacks(root);
 }
 function updateCompare() {
@@ -199,8 +211,10 @@ $('#compareButton').onclick = () => {
     $('#modal').close();
     setView('discover');
     sendChat(
-      'این محصولات را با ابزار compare_products مقایسه کن و بگو هرکدام مناسب چه استفاده‌ای است: ' +
+      'این محصولات را با ابزار compare_products با توجه به بودجه و نیازهایی که گفته‌ام مقایسه کن؛ مزایا، محدودیت‌ها و تفاوت‌های کاربردی را بگو و در پایان یک گزینه برای من پیشنهاد بده و دلیلش را توضیح بده: ' +
         list.map((p) => p.product_id).join('، '),
+      'این گزینه‌ها را مقایسه کن و بگو کدام برای من مناسب‌تر است: ' +
+        list.map((p) => p.title).join('، '),
     );
   };
   bindImageFallbacks($('#modal'));
@@ -209,55 +223,31 @@ async function showDetail(id) {
   try {
     const p =
       state.products.find((p) => p.product_id === id) || (await api('/api/product?id=' + id));
-    modal(
-      p.title,
-      `${productPicture(p, 'modal-product-img')}<div class="table-scroll"><table class="spec-table">${p.specs.length ? p.specs.map((s) => `<tr><th>${esc(s.key)}</th><td>${esc(s.value)}</td></tr>`).join('') : '<tr><td>مشخصات ثبت نشده است.</td></tr>'}</table></div><div class="modal-actions"><button id="detailSelect" class="primary">پیدا کردن فروشگاه</button></div>`,
-    );
-    $('#detailSelect').onclick = () => {
-      $('#modal').close();
-      selectProduct(id);
-    };
-    bindImageFallbacks($('#modal'));
+    const bubble = addBubble('assistant', p.title);
+    bubble.classList.add('inline-chat-panel');
+    const details = document.createElement('div');
+    details.innerHTML = `${productPicture(p, 'modal-product-img')}<div class="table-scroll"><table class="spec-table">${p.specs.length ? p.specs.map((s) => `<tr><th>${esc(s.key)}</th><td>${esc(s.value)}</td></tr>`).join('') : '<tr><td>مشخصات ثبت نشده است.</td></tr>'}</table></div><div class="modal-actions"><button class="primary">پیدا کردن فروشگاه</button></div>`;
+    details.querySelector('button').onclick = () => selectProduct(id);
+    bubble.append(details);
+    bindImageFallbacks(bubble);
+    bubble.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     toast(e.message);
   }
 }
 async function selectProduct(id) {
   try {
-    const data = await workflowEvent({ type: 'select', productId: id });
-    renderSelected();
-    setView('shops');
-    state.sellers = data.sellers;
-    renderSellers();
-    if (data.needsLocation) openLocation();
+    let button = $$('[data-select]').findLast((button) => button.dataset.select === id);
+    if (!button) {
+      const product = await api('/api/product?id=' + encodeURIComponent(id));
+      const bubble = addBubble('assistant', '', { products: [product] });
+      button = bubble.querySelector('[data-select]');
+    }
+    await pInfo.open(button.closest('.product-card'), id);
   } catch (e) {
     toast(e.message);
   }
 }
-async function loadSellers() {
-  if (!state.selected) return;
-  $('#sellers').innerHTML = '<div class="loading">در حال مقایسه فروشگاه‌ها</div>';
-  try {
-    const data = await workflowEvent({
-      type: 'preferences',
-      preferences: {
-        sort: $('#sortShops').value,
-        installments: $('#shopInstallments').checked,
-        open: $('#openShops').checked,
-        radius: Number($('#shopRadius').value) || 0,
-        location: state.location,
-      },
-    });
-    state.sellers = data.sellers;
-    renderSellers();
-  } catch (e) {
-    $('#sellers').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
-  }
-}
-['sortShops', 'shopInstallments', 'openShops', 'shopRadius'].forEach(
-  (id) => ($('#' + id).onchange = loadSellers),
-);
-const failed = (v) => v && ['closed', 'no_answer', 'unavailable'].includes(v.status);
 function shopContacts(s) {
   const links = [
     ['وب‌سایت', s.website],
@@ -277,163 +267,164 @@ function shopContacts(s) {
         return '';
       }
     })
+    .filter(Boolean)
     .join(' · ');
-  return (
-    '<div class="seller-contacts">' +
-    links +
-    (s.contacts || [])
-      .map(
-        (c) =>
-          '<div>شماره نمایشی: <b dir="ltr">' +
-          esc(c.display_number) +
-          '</b><small>شماره دیتاست جعلی است؛ تماس واقعی فعال نیست.</small></div>',
-      )
-      .join('') +
-    '</div>'
-  );
+  return links ? '<div class="seller-contacts">' + links + '</div>' : '';
 }
 function renderSellers() {
-  const inquiry = state.workflow?.inquiry;
-  const summary = $('#inquirySummary');
-  summary.hidden = !state.location;
-  summary.innerHTML = inquiry
-    ? '<strong>پیگیری خودکار · نسخه آزمایشی</strong><p>' +
-      esc(inquiry.note) +
-      '</p><div class="inquiry-attempts">' +
-      (inquiry.attempts || [])
-        .map(
-          (a) =>
-            '<span>' +
-            esc(a.shopName) +
-            ': ' +
-            esc(
-              {
-                closed: 'بسته',
-                no_answer: 'بدون پاسخ',
-                unavailable: 'ناموجود',
-                confirmed: 'تأیید آزمایشی',
-                price_changed: 'تغییر قیمت آزمایشی',
-              }[a.status] || a.status,
-            ) +
-            '</span>',
-        )
-        .join('') +
-      '</div><button class="text-button" id="retryInquiry">بررسی دوباره ←</button>'
-    : '';
-  if ($('#retryInquiry'))
-    $('#retryInquiry').onclick = async (event) => {
-      event.currentTarget.disabled = true;
-      try {
-        await workflowEvent({ type: 'inquire' });
-        renderSellers();
-      } catch (e) {
-        toast(e.message);
-        renderSellers();
-      }
-    };
-  if (!state.location) {
-    $('#distanceNote').textContent = 'مبدأ خرید هنوز انتخاب نشده است.';
-    $('#sellers').innerHTML =
-      '<div class="empty">برای پیدا کردن نزدیک‌ترین فروشگاه، مبدأ خریدت را انتخاب کن.<br><button class="primary" id="chooseStoreLocation">انتخاب موقعیت</button></div>';
-    $('#chooseStoreLocation').onclick = openLocation;
-    return;
-  }
-
-  const active = state.sellers.filter((s) => !failed(s.verification)),
-    blocked = state.sellers.filter((s) => failed(s.verification));
-  const ordered = [...active, ...blocked];
+  const ordered = state.sellers;
   $('#distanceNote').textContent = state.location
-    ? `فاصله‌ها خط مستقیم از «${state.location.label}» هستند؛ زمان سفر محاسبه نشده است. پیگیری خودکار از نزدیک‌ترین فروشگاه آغاز می‌شود.`
-    : 'برای مقایسه فاصله، محدوده‌ات را از بالای صفحه انتخاب کن. رتبه‌بندی فعلی براساس قیمت و ساعت کاری ثبت‌شده است.';
+    ? 'فاصله‌ها خط مستقیم از «' +
+      state.location.label +
+      '» هستند؛ مسافت رانندگی و زمان رسیدن محاسبه نشده است.'
+    : 'برای نمایش فاصله فروشگاه‌ها، موقعیت خودت را از تنظیمات یا انتخاب مبدأ ثبت کن.';
   if (!ordered.length) {
     $('#sellers').innerHTML =
-      `<div class="empty">${icon('store')}فروشگاهی با این فیلترها پیدا نشد.<br>فیلتر ساعت، اقساط یا شعاع را تغییر بده.</div>`;
+      '<div class="empty">فروشگاهی با این فیلترها پیدا نشد؛ فیلترهای قیمت، ساعت، اقساط یا شعاع را تغییر بده.</div>';
     return;
   }
   $('#sellers').innerHTML = ordered
-    .map((s, i) => {
-      const v = s.verification;
-      return `<article class="seller-card"><div class="seller-head"><div class="seller-name"><span class="store-avatar">${icon('store')}</span><div><h3>${esc(s.name)}</h3><div class="badges">${s.offer_id === inquiry?.recommendedOfferId && !failed(v) ? '<span class="badge red">نزدیک‌ترین گزینه در دمو</span>' : ''}<span class="badge ${s.opening.state === 'open' ? 'green' : ''}">${esc(s.opening.label)}</span>${s.payments.map((p) => `<span class="badge">${esc(p.provider_name)} · ${p.channel === 'in_person' ? 'حضوری' : p.channel === 'online' ? 'آنلاین' : 'نحوه پذیرش نامشخص'}</span>`).join('')}</div></div></div><span class="price">${money(s.price)}</span></div><p class="seller-address">${icon('pin')} ${esc(s.address || 'آدرس ثبت نشده')}</p><div class="seller-meta"><span>${s.distance !== null ? fa(s.distance) + ' کیلومتر فاصله مستقیم' : 'فاصله مشخص نشده'}</span><span>آخرین تغییر قیمت: ${s.changed ? date(s.changed) : 'نامشخص'}</span><span>${s.payments.length ? 'شرایط اقساط نیازمند بررسی فروشنده' : 'اطلاعات اقساط ثبت نشده'}</span></div>${shopContacts(s)}${v ? `<div class="verification"><span class="badge ${failed(v) ? 'red' : 'green'}">استعلام شبیه‌سازی‌شده</span> ${esc(v.note)}${['confirmed', 'price_changed'].includes(v.status) ? `<p>قیمت در دمو: ${money(v.price)}</p><small>رنگ و سایز هنوز تأیید نشده‌اند.</small>` : ''}<small>زمان اجرای دمو: ${date(v.at)} · این نتیجه تأیید واقعی فروشنده نیست.</small>${failed(v) ? `<b>${active.length ? 'گزینه‌های جایگزین در بالای فهرست قرار گرفتند.' : 'فروشنده جایگزینی با این فیلترها نمانده؛ فیلترها یا محصول را تغییر بده.'}</b>` : ''}</div>` : ''}<div class="seller-actions"><select aria-label="سناریوی شبیه‌سازی فروشنده" data-scenario="${s.offer_id}"><option value="confirmed">دمو: تأیید فروشنده</option><option value="no_answer">دمو: عدم پاسخ</option><option value="closed">دمو: فروشگاه بسته</option><option value="unavailable">دمو: ناموجودی</option><option value="price_changed">دمو: تغییر قیمت</option></select><button class="primary" data-verify="${s.offer_id}">استعلام آزمایشی</button><button class="trip-button" data-trip="${s.offer_id}">راهنمای مراجعه ←</button></div></article>`;
+    .map((s) => {
+      const payments = s.payments || [];
+      const inPerson = payments.filter((payment) => payment.channel === 'in_person');
+      const installmentText = inPerson.length
+        ? 'اقساط حضوری ثبت شده: ' + inPerson.map((payment) => payment.provider_name).join('، ')
+        : payments.length
+          ? 'اقساط حضوری تأیید نشده؛ اطلاعات ثبت‌شده را ببین.'
+          : 'اطلاعات اقساط ثبت نشده';
+      const distanceText = !state.location
+        ? 'برای نمایش فاصله، موقعیت را ثبت کن'
+        : s.distance == null
+          ? 'مختصات فروشگاه ثبت نشده'
+          : s.distance === 0
+            ? 'کمتر از ۱۰۰ متر فاصله مستقیم'
+            : s.distance < 1
+              ? fa(Math.round(s.distance * 1000)) + ' متر فاصله مستقیم'
+              : fa(s.distance) + ' کیلومتر فاصله مستقیم';
+      const paymentDetails = payments
+        .map(
+          (payment) =>
+            '<span class="badge">' +
+            esc(payment.provider_name) +
+            ' · ' +
+            (payment.channel === 'in_person'
+              ? 'حضوری'
+              : payment.channel === 'online'
+                ? 'آنلاین'
+                : 'نحوه پذیرش نامشخص') +
+            '</span>',
+        )
+        .join('');
+      return (
+        '<article class="seller-card"><div class="seller-head"><div class="seller-name"><span class="store-avatar">' +
+        icon('store') +
+        '</span><div><h3>' +
+        esc(s.name) +
+        '</h3><span class="badge ' +
+        (s.opening.state === 'open' ? 'green' : '') +
+        '">' +
+        esc(s.opening.label) +
+        '</span></div></div><div class="seller-price"><small>قیمت ثبت‌شده</small><span class="price">' +
+        money(s.price) +
+        '</span></div></div><p class="seller-address">' +
+        icon('pin') +
+        esc(s.address || 'آدرس ثبت نشده') +
+        '</p><dl class="seller-facts"><div><dt>آخرین تغییر قیمت</dt><dd>' +
+        (s.changed ? date(s.changed) : 'تاریخ ثبت نشده') +
+        '</dd></div><div><dt>فاصله از مبدأ شما</dt><dd>' +
+        distanceText +
+        '</dd></div><div><dt>خرید اقساطی</dt><dd>' +
+        esc(installmentText) +
+        '</dd></div></dl><div class="badges">' +
+        paymentDetails +
+        '</div><p class="seller-source-note">قیمت و شرایط از اطلاعات ثبت‌شده فروشگاه است؛ موجودی و مبلغ نهایی نیاز به تأیید فروشنده دارد.</p>' +
+        shopContacts(s) +
+        '<div class="seller-actions"><button class="trip-button" data-trip="' +
+        s.offer_id +
+        '">آدرس و راهنمای مراجعه ←</button></div></article>'
+      );
     })
     .join('');
-  $$('[data-verify]').forEach(
-    (b) =>
-      (b.onclick = async () => {
-        b.disabled = true;
-        b.textContent = 'در حال اجرای سناریو…';
-        try {
-          const scenario = $('[data-scenario="' + b.dataset.verify + '"]').value;
-          const result = await api('/api/verify', { offerId: b.dataset.verify, scenario });
-          applyWorkflow(result.workflow);
-          renderSellers();
-          toast(result.workflow.reply || 'نتیجه شبیه‌سازی و وضعیت خرید ذخیره شد.');
-        } catch (e) {
-          b.disabled = false;
-          b.textContent = 'تلاش دوباره';
-          toast(e.message);
-        }
-      }),
-  );
   $$('[data-trip]').forEach(
-    (b) =>
-      (b.onclick = async () => {
-        b.disabled = true;
+    (button) =>
+      (button.onclick = async () => {
+        button.disabled = true;
         try {
-          await workflowEvent({ type: 'plan', offerId: b.dataset.trip });
+          await checkShopChallenge(button.dataset.trip);
           setView('trip');
-        } catch (e) {
-          b.disabled = false;
-          toast(e.message);
+        } catch (error) {
+          toast(error.message);
+        } finally {
+          button.disabled = false;
         }
       }),
   );
-}
-function loadGuide(id) {
-  try {
-    return JSON.parse(localStorage.getItem('torob_guide_' + id)) || null;
-  } catch {
-    return null;
-  }
 }
 function renderTrip() {
   if (!state.trip) {
     $('#tripContent').innerHTML =
-      `<div class="empty">${icon('route')}هنوز فروشگاهی برای مراجعه انتخاب نکردی.<br>از صفحه فروشگاه‌ها «راهنمای مراجعه» را انتخاب کن.</div>`;
+      '<div class="empty">هنوز فروشگاهی برای مراجعه انتخاب نکردی.</div>';
     return;
   }
-  const { seller: s, product: p } = state.trip;
-  const guide = loadGuide(s.shop_id);
-  const v = s.verification;
-  const href =
-    s.lat && s.lon
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.lat + ',' + s.lon)}`
-      : null;
+  const { seller, product } = state.trip;
+  const map =
+    seller.lat && seller.lon
+      ? 'https://neshan.org/maps/share/' + Number(seller.lat) + ',' + Number(seller.lon)
+      : '';
   $('#tripContent').innerHTML =
-    `<div class="info-banner">${icon('info')}این یک برنامه مراجعه آزمایشی است. قیمت و موجودی واقعی تأیید نشده‌اند.</div><div class="trip-grid"><div class="trip-card"><h3>${esc(s.name)}</h3><p>${esc(p.title)}</p><div class="route-step"><b>۱. رسیدن به آدرس فروشگاه</b><p>${esc(s.address || 'آدرس ثبت نشده')}</p>${href ? `<a class="text-button" href="${href}" target="_blank" rel="noopener noreferrer">باز کردن موقعیت فروشگاه در نقشه ↗</a>` : ''}</div><div class="route-step"><b>۲. از ورودی تا خودِ مغازه</b><p>${guide ? esc(guide) : 'جزئیات تکمیلی مسیر داخلی ثبت نشده است. طبقه و واحد را از آدرس بالا بررسی کن؛ مسیر راهرو یا ورودی را نمی‌دانیم.'}</p><button class="text-button" id="editGuide">ثبت راهنمای مسیر در پنل آزمایشی فروشنده ←</button></div><div class="route-step"><b>۳. قبل از نهایی‌کردن خرید</b><p>مدل، رنگ، سایز، گارانتی و مبلغ نهایی را حضوری تطبیق بده.</p></div></div><div class="trip-card"><h3>چک‌لیست قبل از حرکت</h3><p>${esc(s.opening.label)} · طبق برنامه ثبت‌شده</p><p>قیمت ثبت‌شده: <span class="price">${money(s.price)}</span></p><p>${v ? 'آخرین استعلام: صرفاً شبیه‌سازی' : 'هنوز استعلامی اجرا نشده است.'}</p><p>${failed(v) ? 'در سناریوی دمو این فروشگاه مناسب مراجعه نیست؛ گزینه دیگری انتخاب کن.' : 'موجودی رنگ و سایز و امکان اقساط حضوری را جداگانه بررسی کن.'}</p><button class="primary" id="tripAlternatives">بررسی فروشگاه‌های جایگزین</button><p class="save-note">وضعیت این خرید در سرور محلی ذخیره می‌شود و با تازه‌کردن صفحه باقی می‌ماند.</p><button class="text-button" id="removeTrip">حذف برنامه مراجعه</button></div></div>`;
-  $('#editGuide').onclick = () => {
-    modal(
-      'پنل آزمایشی فروشنده · راهنمای رسیدن',
-      `<p class="modal-prose">این متن فقط در مرورگر ذخیره می‌شود و اطلاعات تأییدشده فروشنده نیست. ورودی، طبقه، واحد و نشانه مسیر را وارد کن.</p><label for="guideInput">راهنمای مسیر داخل مرکز خرید</label><textarea id="guideInput" rows="5" maxlength="1500" placeholder="مثلاً ورودی شمالی، طبقه دوم، راهروی سمت راست، واحد ۲۱۴">${esc(guide || '')}</textarea><button class="primary" id="saveGuide">ذخیره راهنمای آزمایشی</button>`,
-    );
-    $('#saveGuide').onclick = () => {
-      const val = $('#guideInput').value.trim();
-      localStorage.setItem('torob_guide_' + s.shop_id, JSON.stringify(val));
-      $('#modal').close();
-      renderTrip();
-    };
-  };
-  $('#tripAlternatives').onclick = () => {
-    selectProduct(p.product_id);
-  };
+    '<div class="trip-grid"><div class="trip-card"><h3>' +
+    esc(seller.name) +
+    '</h3><p>' +
+    esc(product.title) +
+    '</p><p>' +
+    esc(seller.address || 'آدرس ثبت نشده') +
+    '</p>' +
+    (map
+      ? '<a class="text-button" href="' +
+        map +
+        '" target="_blank" rel="noopener noreferrer">باز کردن موقعیت فروشگاه در نشان ↗</a>'
+      : '') +
+    '</div><div class="trip-card"><h3>اطلاعات مراجعه</h3><p>قیمت ثبت‌شده: <span class="price">' +
+    money(seller.price) +
+    '</span></p><p>آخرین تغییر قیمت: ' +
+    (seller.changed ? date(seller.changed) : 'ثبت نشده') +
+    '</p><p>' +
+    esc(seller.opening.label) +
+    '</p><p class="challenge-status">' +
+    esc(
+      state.workflow?.challenge?.offerId === seller.offer_id
+        ? {
+            confirmed: 'شبیه‌سازی چالش · قیمت تأیید شد',
+            no_answer: 'شبیه‌سازی چالش · فروشنده پاسخ نداد؛ قیمت تأیید نشده',
+            closed: 'فروشگاه طبق برنامه ثبت‌شده بسته است',
+            declined: 'بررسی فروشگاه جایگزین متوقف شد',
+            exhausted: 'فروشگاه جایگزین مطابق شرایط پیدا نشد',
+          }[state.workflow.challenge.status] || ''
+        : 'قیمت ثبت‌شده فروشگاه',
+    ) +
+    '</p><div class="trip-actions"><button class="primary" id="tripAlternatives">دیدن فروشگاه‌های دیگر</button></div><div class="trip-cancel"><button class="text-button" id="removeTrip">لغو مراجعه به این فروشگاه</button></div></div></div>';
+  $('#tripAlternatives').onclick = () => setView('shops');
   $('#removeTrip').onclick = async () => {
     try {
       await workflowEvent({ type: 'clear_trip' });
-      localStorage.removeItem('torob_trip');
       renderTrip();
-    } catch (e) {
-      toast(e.message);
+    } catch (error) {
+      toast(error.message);
     }
   };
+}
+async function checkShopChallenge(offerId, { inline = false } = {}) {
+  const previous = state.workflow?.challenge;
+  const result = await workflowEvent({ type: 'challenge_check', offerId });
+  if (
+    !inline &&
+    (!previous ||
+      previous.offerId !== result.challenge.offerId ||
+      previous.at !== result.challenge.at)
+  ) {
+    addBubble('assistant', result.reply, result.ui, true);
+  }
+  return result;
 }
 function updateLocation() {
   if (state.location) $('#locationLabel').textContent = state.location.label;
@@ -452,33 +443,60 @@ function openLocation() {
     `<p class="modal-prose">یک مبدأ تقریبی برای مقایسه فاصله انتخاب کن. موقعیتت به سرویس مدل ارسال نمی‌شود.</p><button class="primary" id="useCurrentLocation">استفاده از موقعیت فعلی</button><p id="locationError" role="status"></p><div class="location-options">${areas.map((a, i) => `<button data-area="${i}">${icon('pin')} ${a[0]}</button>`).join('')}</div><div class="coordinates"><label>عرض جغرافیایی<input id="customLat" type="number" step="any" placeholder="35.7"></label><label>طول جغرافیایی<input id="customLon" type="number" step="any" placeholder="51.4"></label><button class="primary" id="saveCoords">ثبت مبدأ دلخواه</button></div><button class="text-button" id="clearLocation">حذف مبدأ ذخیره‌شده</button>`,
   );
   const save = async (location) => {
-    state.location = location;
-    localStorage.setItem('torob_location', JSON.stringify(location));
-    updateLocation();
-    $('#modal').close();
+    if (
+      !Number.isFinite(location.lat) ||
+      !Number.isFinite(location.lon) ||
+      location.lat < 35.3 ||
+      location.lat > 36 ||
+      location.lon < 50.8 ||
+      location.lon > 52
+    ) {
+      $('#locationError').textContent =
+        'موقعیت باید در محدوده تهران باشد؛ محدوده دیگری را دستی انتخاب کن.';
+      return;
+    }
     try {
       await workflowEvent({ type: 'preferences', preferences: { location } });
-      if (state.view === 'shops') renderSellers();
+      localStorage.setItem('torob_location', JSON.stringify(location));
+      updateLocation();
+      $('#modal').close();
+      if (state.selected) {
+        renderSellers();
+        pInfo.refresh();
+      }
+      toast('موقعیت ثبت شد؛ فاصله مستقیم تا فروشگاه‌ها به‌روز شد.');
     } catch (e) {
       toast(e.message);
     }
   };
   $('#useCurrentLocation').onclick = () => {
     const message = $('#locationError');
+    const button = $('#useCurrentLocation');
     if (!navigator.geolocation) {
       message.textContent = 'موقعیت دستگاه در دسترس نیست؛ محدوده را انتخاب کن.';
       return;
     }
     message.textContent = 'در انتظار موقعیت دستگاه…';
+    button.disabled = true;
     navigator.geolocation.getCurrentPosition(
-      (p) => save({ label: 'موقعیت فعلی', lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => {
-        message.textContent = 'موقعیت دریافت نشد؛ محدوده را دستی انتخاب کن.';
+      (p) => {
+        button.disabled = false;
+        if (!message.isConnected || !$('#modal').open) return;
+        save({ label: 'موقعیت فعلی من', lat: p.coords.latitude, lon: p.coords.longitude });
       },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
+      (error) => {
+        button.disabled = false;
+        message.textContent =
+          error.code === 1
+            ? 'اجازه دسترسی به موقعیت داده نشد؛ از تنظیمات مرورگر فعالش کن یا محدوده را دستی انتخاب کن.'
+            : error.code === 3
+              ? 'دریافت موقعیت طول کشید؛ دوباره تلاش کن یا محدوده را دستی انتخاب کن.'
+              : 'موقعیت دستگاه در دسترس نیست؛ GPS را روشن کن یا محدوده را دستی انتخاب کن.';
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
     );
   };
-  $('[data-area]').forEach(
+  $$('[data-area]').forEach(
     (b) =>
       (b.onclick = () => {
         const [label, lat, lon] = areas[b.dataset.area];
@@ -499,14 +517,64 @@ function openLocation() {
     $('#modal').close();
     try {
       await workflowEvent({ type: 'preferences', preferences: { location: null } });
-      if (state.view === 'shops') renderSellers();
+      if (state.selected) {
+        renderSellers();
+        pInfo.refresh();
+      }
     } catch (e) {
       toast(e.message);
     }
   };
 }
 $('#locationButton').onclick = openLocation;
-function addBubble(role, text, ui) {
+$('#chatLocationButton').onclick = () => {
+  $('#settingsMenu').close();
+  openLocation();
+};
+$('#settingsButton').onclick = () => $('#settingsMenu').showModal();
+$('#settingsMenu').addEventListener('click', (event) => {
+  if (event.target !== $('#settingsMenu')) return;
+  const rect = event.target.getBoundingClientRect();
+  if (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  )
+    event.target.close();
+});
+function animateReply(bubble, content) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  const segments = [];
+  let node;
+  while ((node = walker.nextNode())) segments.push({ node, chars: Array.from(node.textContent) });
+  const total = segments.reduce((sum, segment) => sum + segment.chars.length, 0);
+  const duration = Math.min(total * 9, 4500);
+  const height = content.getBoundingClientRect().height;
+  if (total) content.style.minHeight = height + 'px';
+  for (const segment of segments) segment.node.textContent = '';
+  let start;
+  const frame = (time) => {
+    if (!bubble.isConnected) return;
+    start ??= time;
+    const progress = duration ? Math.min(1, (time - start) / duration) : 1;
+    let remaining = Math.floor(total * progress);
+    for (const segment of segments) {
+      const visible = Math.min(segment.chars.length, remaining);
+      segment.node.textContent = segment.chars.slice(0, visible).join('');
+      remaining -= visible;
+    }
+    if (progress < 1) requestAnimationFrame(frame);
+    else content.style.removeProperty('min-height');
+  };
+  if (total) requestAnimationFrame(frame);
+  bubble.querySelectorAll('.product-card').forEach((card, index) => {
+    card.style.setProperty('--reveal-delay', duration + index * 100 + 'ms');
+    card.classList.add('card-reveal');
+  });
+}
+function addBubble(role, text, ui, animate = false) {
   document.body.classList.remove('chat-empty');
   const div = document.createElement('div');
   div.className = 'bubble ' + role;
@@ -524,21 +592,60 @@ function addBubble(role, text, ui) {
   if (text) div.append(content);
   $('#chatMessages').append(div);
   if (role === 'assistant' && ui) {
+    if (ui.notice) {
+      const notice = document.createElement('p');
+      notice.className = 'info-banner';
+      notice.textContent = ui.notice;
+      div.append(notice);
+    }
     if (ui.products?.length) {
       const cards = document.createElement('div');
       cards.className = 'product-grid chat-product-grid';
       div.append(cards);
       renderProducts(cards, ui.products);
     }
-    for (const question of ui.questions || []) renderQuestion(div, question);
+    const questions = ui.questions || [];
+    if (questions.length > 1) {
+      const group = document.createElement('div');
+      const answers = new Map();
+      const submit = document.createElement('button');
+      submit.type = 'button';
+      submit.className = 'primary question-submit';
+      submit.textContent = 'ثبت پاسخ‌ها';
+      submit.disabled = true;
+      for (const [index, question] of questions.entries()) {
+        renderQuestion(group, question, (value) => {
+          if (value) answers.set(index, value);
+          else answers.delete(index);
+          submit.disabled = answers.size !== questions.length;
+        });
+      }
+      submit.onclick = () => {
+        if (['running', 'pausing'].includes(requestMode))
+          return toast('برای تغییر درخواست، ابتدا آن را متوقف کن.');
+        if (answers.size !== questions.length) return;
+        group.querySelectorAll('button,input,textarea').forEach((el) => (el.disabled = true));
+        sendChat(
+          questions
+            .map((question, index) => question.question + ' ' + answers.get(index))
+            .join('\n'),
+          questions.map((_, index) => answers.get(index)).join('، '),
+        );
+      };
+      group.append(submit);
+      div.append(group);
+    } else {
+      for (const question of questions) renderQuestion(div, question);
+    }
   }
+  if (animate && role === 'assistant') animateReply(div, content);
   scrollChat();
   return div;
 }
 function scrollChat() {
   $('#chatMessages').scrollTop = $('#chatMessages').scrollHeight;
 }
-function renderQuestion(container, question) {
+function renderQuestion(container, question, onSelect) {
   const section = document.createElement('section');
   section.className = 'question-card';
   const title = document.createElement('p');
@@ -552,8 +659,12 @@ function renderQuestion(container, question) {
       toast('برای تغییر درخواست، ابتدا آن را متوقف کن.');
       return;
     }
+    if (onSelect) {
+      onSelect(value);
+      return;
+    }
     section.querySelectorAll('button,input,textarea').forEach((e) => (e.disabled = true));
-    sendChat(question.question + ' ' + value);
+    sendChat(question.question + ' ' + value, value);
   };
   for (const option of question.options) {
     const button = document.createElement('button');
@@ -562,7 +673,10 @@ function renderQuestion(container, question) {
     button.onclick = () => {
       if (['running', 'pausing'].includes(requestMode))
         return toast('برای تغییر درخواست، ابتدا آن را متوقف کن.');
-      button.classList.add('selected');
+      options.querySelectorAll('button').forEach((el) => {
+        el.classList.toggle('selected', el === button);
+        el.setAttribute('aria-pressed', String(el === button));
+      });
       answer(option);
     };
     options.append(button);
@@ -574,6 +688,11 @@ function renderQuestion(container, question) {
   other.onclick = () => {
     if (['running', 'pausing'].includes(requestMode))
       return toast('برای تغییر درخواست، ابتدا آن را متوقف کن.');
+    if (onSelect) onSelect('');
+    options.querySelectorAll('button').forEach((el) => {
+      el.classList.toggle('selected', el === other);
+      el.setAttribute('aria-pressed', String(el === other));
+    });
     options.hidden = true;
     const form = document.createElement('form');
     form.className = 'other-answer';
@@ -584,13 +703,20 @@ function renderQuestion(container, question) {
     const send = document.createElement('button');
     send.type = 'submit';
     send.className = 'primary';
-    send.textContent = 'ارسال پاسخ';
+    send.textContent = onSelect ? 'ثبت پاسخ دلخواه' : 'ارسال پاسخ';
+    if (onSelect) {
+      send.hidden = true;
+      input.oninput = () => onSelect(input.value.trim());
+    }
     const back = document.createElement('button');
     back.type = 'button';
     back.textContent = 'بازگشت';
     back.onclick = () => {
       form.remove();
       options.hidden = false;
+      if (onSelect) onSelect('');
+      other.classList.remove('selected');
+      other.setAttribute('aria-pressed', 'false');
     };
     form.append(input, send, back);
     form.onsubmit = (e) => {
@@ -599,7 +725,7 @@ function renderQuestion(container, question) {
       if (value) answer(value);
     };
     section.append(form);
-    input.focus();
+    input.focus({ preventScroll: true });
   };
   options.append(other);
   container.append(section);
@@ -608,6 +734,7 @@ let requestMode = 'idle',
   requestEpoch = 0,
   pendingBubble = null,
   lastChatText = '',
+  lastChatDisplay = '',
   activeUserBubble = null,
   submissionSent = false,
   localPaused = false;
@@ -645,7 +772,21 @@ function markPaused() {
   }
   syncChatButton();
 }
-async function sendChat(text) {
+function showThinking(bubble) {
+  bubble.className = 'bubble assistant pending';
+  bubble.setAttribute('role', 'status');
+  bubble.setAttribute('aria-label', 'در حال بررسی');
+  bubble.replaceChildren();
+  const label = document.createElement('span');
+  label.className = 'thinking-label';
+  label.textContent = 'در حال بررسی';
+  const dots = document.createElement('span');
+  dots.className = 'thinking-dots';
+  dots.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < 3; i++) dots.append(document.createElement('i'));
+  bubble.append(label, dots);
+}
+async function sendChat(text, displayContent = text) {
   if (!text.trim() || ['running', 'pausing'].includes(requestMode)) return;
   const chats = readChats();
   const currentChat = chats.find((chat) => chat.id === sessionStorage.getItem('torob_session'));
@@ -657,11 +798,13 @@ async function sendChat(text) {
   clearChatPlaceholder();
   $('#chatInput').value = '';
   lastChatText = text;
-  activeUserBubble = addBubble('user', text);
+  lastChatDisplay = displayContent;
+  activeUserBubble = addBubble('user', displayContent);
   state.messages.push({ role: 'user', content: text });
-  pendingBubble = addBubble('assistant pending', 'دارم نیازت و گزینه‌های واقعی را بررسی می‌کنم…');
+  pendingBubble = addBubble('assistant pending', '');
+  showThinking(pendingBubble);
   localPaused = false;
-  return runChat({ message: text });
+  return runChat({ message: text, displayContent });
 }
 async function runChat(payload) {
   const epoch = ++requestEpoch;
@@ -688,15 +831,10 @@ async function runChat(payload) {
     pendingBubble = null;
     requestMode = 'idle';
     state.products = result.products || [];
-    addBubble('assistant', result.reply, result.ui);
+    addBubble('assistant', result.reply, result.ui, true);
     if (result.selected && result.phase === 'sellers') {
-      renderSelected();
-      renderSellers();
-      const action = document.createElement('button');
-      action.className = 'primary chat-seller-action';
-      action.textContent = 'دیدن فروشگاه‌های این محصول ←';
-      action.onclick = () => setView('shops');
-      $('#chatMessages').append(action);
+      if (pInfo.active?.productId === result.selected.product_id) pInfo.refresh();
+      else await selectProduct(result.selected.product_id);
     }
   } catch (e) {
     if (epoch !== requestEpoch) return;
@@ -718,7 +856,7 @@ async function runChat(payload) {
       if (['running', 'pausing'].includes(requestMode)) return;
       failure.remove();
       failedUserBubble?.remove();
-      sendChat(failedText);
+      sendChat(failedText, lastChatDisplay);
     };
     failure.append(document.createElement('br'), retry);
   } finally {
@@ -750,10 +888,11 @@ async function pauseChat() {
 function resumeChat() {
   if (requestMode !== 'paused') return;
   if (pendingBubble) {
-    pendingBubble.className = 'bubble assistant pending';
-    pendingBubble.textContent = 'در حال ادامه بررسی…';
+    showThinking(pendingBubble);
   }
-  const payload = localPaused ? { message: lastChatText } : { resume: true };
+  const payload = localPaused
+    ? { message: lastChatText, displayContent: lastChatDisplay }
+    : { resume: true };
   localPaused = false;
   return runChat(payload);
 }
@@ -782,17 +921,13 @@ function applyWorkflow(data) {
   state.selected = data.selected || null;
   state.sellers = data.sellers || [];
   state.trip = data.trip || null;
-  if (state.view === 'trip') renderTrip();
+  if ($('#tripView').closest('.inline-chat-panel')) renderTrip();
   const prefs = data.preferences || {};
   if (prefs.q !== undefined) {
     state.query = prefs.q;
   }
   state.filters = { maxPrice: prefs.maxPrice || 0, installments: !!prefs.installments };
   state.location = prefs.location || null;
-  $('#shopInstallments').checked = !!prefs.installments;
-  $('#openShops').checked = !!prefs.open;
-  $('#sortShops').value = prefs.sort || 'recommended';
-  $('#shopRadius').value = prefs.radius ? String(prefs.radius) : '';
   $('#locationLabel').textContent = state.location?.label || 'تهران، محدوده دلخواه';
 }
 function workflowEvent(event) {
@@ -824,7 +959,7 @@ async function initializeWorkflow() {
     applyWorkflow(data);
     if (!Object.keys(data.preferences).length && previousLocation)
       await workflowEvent({ type: 'preferences', preferences: { location: previousLocation } });
-    for (const m of data.messages || []) addBubble(m.role, m.content, m.ui);
+    for (const m of data.messages || []) addBubble(m.role, m.displayContent ?? m.content, m.ui);
     if (
       data.messages?.some((m) => m.role === 'user') ||
       sessionStorage.getItem('torob_chat_started')
@@ -840,13 +975,16 @@ async function initializeWorkflow() {
     // The initial view is conversation-only; cards appear after an explicit assistant search.
 
     if (state.selected) {
-      renderSelected();
-      renderSellers();
-      const action = document.createElement('button');
-      action.className = 'primary chat-seller-action';
-      action.textContent = state.trip ? 'دیدن برنامه مراجعه ←' : 'ادامه بررسی فروشگاه‌ها ←';
-      action.onclick = () => setView(state.trip ? 'trip' : 'shops');
-      $('#chatMessages').append(action);
+      let button = $$('[data-select]').findLast(
+        (button) => button.dataset.select === state.selected.product_id,
+      );
+      if (!button)
+        button = addBubble('assistant', '', { products: [state.selected] }).querySelector(
+          '[data-select]',
+        );
+      await pInfo.open(button.closest('.product-card'), state.selected.product_id, {
+        restore: true,
+      });
     }
   } catch (e) {
     toast('ادامه خرید بازیابی نشد: ' + e.message);
@@ -885,8 +1023,31 @@ $('#chatMenuButton').onclick = () => {
   }
   $('#chatMenu').showModal();
 };
-$('#closeChatMenu').onclick = () => $('#chatMenu').close();
 $('#chatMenu').onclick = (e) => {
-  if (e.target === $('#chatMenu') && e.offsetX < 0) $('#chatMenu').close();
+  if (e.target !== $('#chatMenu')) return;
+  const rect = e.target.getBoundingClientRect();
+  if (
+    e.clientX < rect.left ||
+    e.clientX > rect.right ||
+    e.clientY < rect.top ||
+    e.clientY > rect.bottom
+  )
+    e.target.close();
 };
 $('#newChatButton').onclick = () => switchChat(crypto.randomUUID());
+async function refreshShopHours() {
+  if (document.hidden || !state.selected || ['running', 'pausing'].includes(requestMode)) return;
+  try {
+    const data = await api('/api/session');
+    if (data.selected?.product_id !== state.selected?.product_id) return;
+    applyWorkflow(data);
+    renderSellers();
+    pInfo.refresh();
+  } catch {
+    /* Keep the last known information during a temporary connection failure. */
+  }
+}
+setInterval(refreshShopHours, 60000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshShopHours();
+});

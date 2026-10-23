@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { db, search, sellers, stats, distance, opening, normalize } from '../lib/catalog.mjs';
+import { searchAlternatives } from '../lib/catalog.mjs';
+test('similar products preserve budget and payment constraints and never invent records', () => {
+  const exact = searchAlternatives({ q: 'هدفون', limit: 6 });
+  assert.equal(exact.approximate, false);
+  const similar = searchAlternatives({
+    q: 'هدفون مدلناموجودقطعی',
+    maxPrice: 3000000,
+    installments: true,
+  });
+  assert.equal(similar.approximate, true);
+  assert.ok(similar.products.length);
+  for (const item of similar.products) {
+    assert.ok(sellers(item.product_id, { maxPrice: 3000000, installments: true }).length);
+    assert.match(item.title, /هدفون/);
+  }
+  assert.deepEqual(searchAlternatives({ q: 'هدفون مدلناموجودقطعی', maxPrice: 1 }).products, []);
+  assert.deepEqual(searchAlternatives({ q: 'کالایکاملاًنامرتبطناشناخته' }).products, []);
+});
 test('complete dataset and product/shop relationships', () => {
   assert.deepEqual(
     stats(),

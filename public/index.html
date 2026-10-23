@@ -19,10 +19,29 @@
     >
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
     </button>
+    <button
+      id="settingsButton"
+      class="chat-menu-button settings-button"
+      aria-label="تنظیمات برنامه"
+      aria-haspopup="dialog"
+      aria-controls="settingsMenu"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="m9 3-.6 2.3-2 .9-2.2-.6-2 3.5 1.6 1.7v2.4L2.2 15l2 3.5 2.2-.6 2 .9L9 21h4l.6-2.2 2-.9 2.2.6 2-3.5-1.6-1.8v-2.4l1.6-1.7-2-3.5-2.2.6-2-.9L13 3Z"
+        />
+        <circle cx="11" cy="12" r="3" />
+      </svg>
+    </button>
+    <dialog id="settingsMenu" class="chat-drawer settings-drawer" aria-labelledby="settingsTitle">
+      <div class="drawer-heading">
+        <h2 id="settingsTitle">تنظیمات برنامه</h2>
+      </div>
+      <button id="chatLocationButton" class="chat-list-item">موقعیت من و فاصله فروشگاه‌ها</button>
+    </dialog>
     <dialog id="chatMenu" class="chat-drawer" aria-labelledby="chatMenuTitle">
       <div class="drawer-heading">
         <h2 id="chatMenuTitle">گفتگوها</h2>
-        <button id="closeChatMenu" aria-label="بستن منو">×</button>
       </div>
       <button id="newChatButton" class="primary">＋ گفتگوی جدید</button>
       <div id="chatList"></div>
@@ -95,33 +114,10 @@
             ><span data-icon="chevron"></span>
           </button>
           <div id="selectedProduct"></div>
-          <div class="shop-toolbar">
-            <label
-              >مرتب‌سازی
-              <select id="sortShops">
-                <option value="recommended">پیشنهاد همراه</option>
-                <option value="price">کمترین قیمت</option>
-                <option value="distance">نزدیک‌ترین</option>
-              </select></label
-            ><label class="check-label"
-              ><input type="checkbox" id="shopInstallments" />اقساط حضوری</label
-            ><label class="check-label"
-              ><input type="checkbox" id="openShops" />فقط بازها طبق برنامه</label
-            ><label
-              >شعاع
-              <select id="shopRadius">
-                <option value="">همه تهران</option>
-                <option value="3">۳ کیلومتر</option>
-                <option value="5">۵ کیلومتر</option>
-                <option value="10">۱۰ کیلومتر</option>
-              </select></label
-            >
-          </div>
           <div class="info-banner">
             <span data-icon="info"></span
             ><span id="distanceNote">برای مقایسه فاصله، محدوده‌ات را از بالای صفحه انتخاب کن.</span>
           </div>
-          <section id="inquirySummary" class="inquiry-summary" aria-live="polite" hidden></section>
           <div id="sellers" class="seller-list"></div>
         </section>
         <section id="tripView" hidden>

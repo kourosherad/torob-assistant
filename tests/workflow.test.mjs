@@ -16,10 +16,218 @@ const call = (name, args, id = 'tool-1') => ({
   },
   tokens: 20,
 });
+test('two answered questions force a shortlist instead of another questionnaire', async () => {
+  const questions = [
+    { question: 'بودجه؟', options: ['کم', 'زیاد'] },
+    { question: 'کاربرد؟', options: ['موسیقی', 'تماس'] },
+  ];
+  const { saver, w } = setup(async () =>
+    text(JSON.stringify({ text: 'چند سؤال دیگر', questions })),
+  );
+  try {
+    const first = present(await w.run('brief-shopping', { type: 'chat', message: 'هدفون' }));
+    assert.equal(first.ui.questions.length, 2);
+    const second = present(
+      await w.run('brief-shopping', { type: 'chat', message: 'بودجه کم، موسیقی' }),
+    );
+    assert.equal(second.ui.questions.length, 0);
+    assert.ok(second.ui.products.length);
+    assert.ok(second.trace.includes('پیشنهاد محصول پس از پاسخ‌های ضروری'));
+  } finally {
+    saver.close();
+  }
+});
 function setup(model = async () => text('چه کاربردی داری؟')) {
   const saver = new SqliteCheckpointer(':memory:');
   return { saver, w: createWorkflow({ checkpointer: saver, model }) };
 }
+test('challenge no-answer persists and a natural-language no stops the alternative search', async () => {
+  const saver = new SqliteCheckpointer(':memory:');
+  const w = createWorkflow({
+    checkpointer: saver,
+    sellerSimulation: false,
+    challengeRandom: () => 1,
+    model: async () => call('respond_to_inquiry', { accepted: false }),
+  });
+  try {
+    let result = present(
+      await w.run('challenge-user', { type: 'select', productId: choice.product_id }),
+    );
+    const offerId = result.sellers[0].offer_id;
+    result = present(await w.run('challenge-user', { type: 'challenge_check', offerId }));
+    assert.ok(['closed', 'no_answer'].includes(result.challenge.status));
+    assert.equal(result.ui.questions.length, 1);
+    assert.equal(present(await w.state('challenge-user')).challenge.offerId, offerId);
+    result = present(
+      await w.run('challenge-user', { type: 'chat', message: 'نه، فعلاً ادامه نده' }),
+    );
+    assert.equal(result.challenge.status, 'declined');
+    assert.equal(result.ui.questions.length, 0);
+    assert.equal(result.challenge.attempted.length, 1);
+  } finally {
+    saver.close();
+  }
+});
+test('selecting a product preserves conversational seller preferences', async () => {
+  const saver = new SqliteCheckpointer(':memory:');
+  const w = createWorkflow({ checkpointer: saver, sellerSimulation: false });
+  try {
+    await w.run('seller-filters', {
+      type: 'preferences',
+      preferences: { sort: 'price', maxPrice: 3000000, installments: true },
+    });
+    const result = present(
+      await w.run('seller-filters', { type: 'select', productId: choice.product_id }),
+    );
+    assert.equal(result.preferences.sort, 'price');
+    assert.equal(result.preferences.installments, true);
+    assert.equal(result.preferences.maxPrice, 3000000);
+    assert.ok(result.sellers.length);
+    assert.ok(
+      result.sellers.every(
+        (shop) =>
+          shop.price <= 3000000 && shop.payments.some((payment) => payment.channel === 'in_person'),
+      ),
+    );
+    assert.deepEqual(
+      result.sellers.map((shop) => shop.price),
+      result.sellers.map((shop) => shop.price).sort((a, b) => a - b),
+    );
+  } finally {
+    saver.close();
+  }
+});
+test('customer mode lists shops without location or simulated inquiries and ignores old demo results', async () => {
+  const saver = new SqliteCheckpointer(':memory:');
+  let inquiries = 0;
+  const w = createWorkflow({
+    checkpointer: saver,
+    sellerSimulation: false,
+    inquiryAdapter: async () => {
+      inquiries++;
+      throw Error('must not inquire');
+    },
+  });
+  try {
+    let result = present(
+      await w.run('customer-shops', { type: 'select', productId: choice.product_id }),
+    );
+    assert.ok(result.sellers.length);
+    assert.ok(result.sellers.every((shop) => shop.distance === null && shop.verification === null));
+    result = present(
+      await w.run('customer-shops', {
+        type: 'preferences',
+        preferences: { location: { lat: 35.71, lon: 51.4 } },
+      }),
+    );
+    assert.equal(inquiries, 0);
+    assert.ok(result.sellers.every((shop) => typeof shop.distance === 'number'));
+    await w.run('customer-shops', { type: 'plan', offerId: result.sellers[0].offer_id });
+    assert.ok(present(await w.state('customer-shops')).trip);
+    await assert.rejects(w.run('customer-shops', { type: 'inquire' }), /فعال نیست/);
+    const state = await w.state('customer-shops');
+    const offer = result.sellers[0];
+    state.verifications = { [offer.offer_id]: { status: 'price_changed', price: 999999999 } };
+    assert.equal(
+      present(state).sellers.find((shop) => shop.offer_id === offer.offer_id).price,
+      offer.price,
+    );
+  } finally {
+    saver.close();
+  }
+});
+test('comparing displayed items executes comparison and preserves its explanation', async () => {
+  let calls = 0;
+  const explanation =
+    'گزینه اول را برای موسیقی پیشنهاد می‌کنم چون قیمت ثبت‌شده کمتری دارد؛ کیفیت صدا ثبت نشده است.';
+  const { saver, w } = setup(async (messages) => {
+    calls++;
+    if (calls === 1) return call('search_products', { q: 'هدفون' });
+    if (calls === 2) return text(JSON.stringify({ text: 'گزینه‌های موجود', questions: [] }));
+    const comparison = messages.findLast((message) => message.role === 'tool');
+    assert.ok(comparison);
+    assert.ok(JSON.parse(comparison.content).length >= 2);
+    return text(
+      JSON.stringify({
+        text: explanation,
+        questions: [{ question: 'باز هم سؤال؟', options: ['بله', 'خیر'] }],
+      }),
+    );
+  });
+  try {
+    await w.run('compare-request', { type: 'chat', message: 'هدفون می‌خواهم' });
+    const result = present(
+      await w.run('compare-request', { type: 'chat', message: 'اینا رو با هم مقایسه کن' }),
+    );
+    assert.equal(result.reply, explanation);
+    assert.equal(result.ui.questions.length, 0);
+    assert.ok(result.trace.includes('مقایسه مشخصات ثبت‌شده'));
+    assert.equal(result.selected, null);
+  } finally {
+    saver.close();
+  }
+});
+
+test('comparison supplies price, facts and budget eligibility without selecting a purchase', async () => {
+  const items = search({ q: 'هدفون', limit: 3 });
+  let calls = 0;
+  const { saver, w } = setup(async (messages) => {
+    if (calls++ === 0) {
+      assert.match(messages[0].content, /Comparison and recommendation/);
+      return call('compare_products', { ids: items.map((p) => p.product_id) });
+    }
+    const compared = JSON.parse(messages.findLast((m) => m.role === 'tool').content);
+    assert.equal(compared.length, items.length);
+    for (const row of compared) {
+      assert.equal(row.matching_offer_count, 0);
+      assert.equal(row.matching_min_price_toman, null);
+      assert.ok(row.min_price_toman > 1);
+      assert.ok(Array.isArray(row.specs));
+      assert.equal(row.lat, undefined);
+    }
+    return text(JSON.stringify({ text: 'هیچ‌کدام در سقف بودجه فعلی نیستند.', questions: [] }));
+  });
+  try {
+    await w.run('comparison', {
+      type: 'preferences',
+      preferences: { maxPrice: 1, useCase: 'موسیقی' },
+    });
+    const result = present(
+      await w.run('comparison', { type: 'chat', message: 'این گزینه‌ها را مقایسه کن' }),
+    );
+    assert.equal(result.ui.products.length, items.length);
+    assert.equal(result.selected, null);
+    assert.equal(result.trip, null);
+  } finally {
+    saver.close();
+  }
+});
+
+test('approximate matches reach the UI and short answers persist without losing model context', async () => {
+  let turn = 0;
+  const { saver, w } = setup(async (messages) => {
+    if (turn++ === 0) {
+      assert.equal(messages.at(-1).content, 'نوع؟ هدفون');
+      return call('search_products', { q: 'هدفون مدلناموجودقطعی', maxPrice: 3000000 });
+    }
+    const result = JSON.parse(messages.findLast((m) => m.role === 'tool').content);
+    assert.ok(result.length);
+    assert.ok(result.every((p) => p.approximate_match));
+    return text(JSON.stringify({ text: 'این گزینه‌ها مشابه‌اند.', productIds: [], questions: [] }));
+  });
+  try {
+    const result = present(
+      await w.run('alternatives', { type: 'chat', message: 'نوع؟ هدفون', displayContent: 'هدفون' }),
+    );
+    assert.equal(result.messages[0].displayContent, 'هدفون');
+    assert.equal(result.messages[0].content, 'نوع؟ هدفون');
+    assert.ok(result.ui.products.length);
+    assert.match(result.ui.notice, /تطابق دقیق/);
+    assert.equal(present(await w.state('alternatives')).messages[0].displayContent, 'هدفون');
+  } finally {
+    saver.close();
+  }
+});
 
 test('SQLite checkpoints restore a complete purchase after reopening the database', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'torob-state-')),

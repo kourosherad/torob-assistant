@@ -103,7 +103,12 @@ test('HTTP session survives a server restart and separates inquiry results', asy
     const selected = await post('/api/workflow', { type: 'select', productId: id });
     const offer = selected.data.sellers[0].offer_id;
     const verification = await post('/api/verify', { offerId: offer, scenario: 'confirmed' });
-    assert.equal(verification.data.simulated, true);
+    assert.equal(verification.response.status, 400);
+    const challenge = await post('/api/workflow', { type: 'challenge_check', offerId: offer });
+    assert.equal(challenge.response.status, 200);
+    assert.equal(challenge.data.challenge.simulated, true);
+    const noOriginRoute = await post('/api/p-info/route', { offerId: offer });
+    assert.equal(noOriginRoute.response.status, 400);
     assert.equal(
       (await post('/api/workflow', { type: 'plan', offerId: offer })).data.phase,
       'trip',
@@ -115,7 +120,8 @@ test('HTTP session survives a server restart and separates inquiry results', asy
     ).json();
     assert.equal(restored.trip.seller.offer_id, offer);
     assert.equal(restored.preferences.maxPrice, 3000000);
-    assert.equal(restored.trip.seller.verification.status, 'confirmed');
+    assert.equal(restored.trip.seller.verification, null);
+    assert.equal(restored.challenge.status, challenge.data.challenge.status);
     const tabId = '10000000-0000-4000-8000-000000000001';
     const tabHeaders = { Cookie: cookie, 'X-Torob-Session': tabId };
     const freshTab = await (await fetch(base + '/api/session', { headers: tabHeaders })).json();
