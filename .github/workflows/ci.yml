@@ -43,3 +43,7 @@ jobs:
           node --check lib/workflow.mjs
       - name: Test catalogue, workflow and HTTP persistence
         run: npm test
+      - name: Verify production dependencies without automatic peer installation
+        run: |
+          npm ci --omit=dev --legacy-peer-deps
+          node --input-type=module -e "import '@langchain/core'; import '@langchain/langgraph'; import '@langchain/langgraph-checkpoint';"
