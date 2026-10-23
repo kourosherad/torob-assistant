@@ -9,6 +9,15 @@ import { modelName } from './lib/model.mjs';
 import { drivingRoute } from './lib/neshan.mjs';
 
 const PORT = Number(process.env.PORT) || 3210;
+const HOST = process.env.HOST || '127.0.0.1';
+const origins = new Set([
+  'http://localhost:' + PORT,
+  'http://127.0.0.1:' + PORT,
+  ...(process.env.APP_ORIGIN || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+]);
 const checkpointer = new SqliteCheckpointer(process.env.WORKFLOW_DB_PATH || 'data/workflow.db');
 const workflow = createWorkflow({ checkpointer, sellerSimulation: false });
 const send = (res, status, data) => {
@@ -69,11 +78,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' });
       return res.end(content);
     }
-    if (
-      req.method === 'POST' &&
-      req.headers.origin &&
-      !['http://localhost:' + PORT, 'http://127.0.0.1:' + PORT].includes(req.headers.origin)
-    )
+    if (req.method === 'POST' && req.headers.origin && !origins.has(req.headers.origin))
       return send(res, 403, { error: 'مبدأ درخواست مجاز نیست.' });
     if (url.pathname === '/api/stats')
       return send(res, 200, {
@@ -199,7 +204,7 @@ const server = http.createServer(async (req, res) => {
     send(res, e.status || 400, { error: e.message || 'خطایی رخ داد.' });
   }
 });
-server.listen(PORT, '127.0.0.1', () =>
+server.listen(PORT, HOST, () =>
   console.log(`Torob assistant (LangGraph): http://localhost:${PORT}`),
 );
 for (const sig of ['SIGTERM', 'SIGINT'])

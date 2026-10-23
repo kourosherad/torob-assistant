@@ -3,6 +3,7 @@
 !.env.example
 
 data/
+seed/
 node_modules/
 *.log
 screenshots/

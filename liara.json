@@ -1,0 +1,7 @@
+{
+  "app": "koruosh-torob-assistant",
+  "platform": "node",
+  "port": 3000,
+  "node": { "version": "24" },
+  "disks": [{ "name": "data", "mountTo": "data" }]
+}

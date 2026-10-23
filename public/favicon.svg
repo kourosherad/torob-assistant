@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <g class="radish-leaves" fill="#4caf50">
+    <path d="M59 39C35 32 32 11 40 8c13 1 20 16 19 31Z" />
+    <path d="M60 37C55 16 69 2 77 7c5 12-3 24-17 30Z" />
+    <path d="M64 38C76 15 94 20 94 29c-6 11-17 14-30 9Z" />
+  </g>
+  <path d="M31 43c12-11 43-12 57 0 16 17 6 48-24 57l-9 12 1-14C29 91 16 61 31 43Z" fill="#d70040" />
+  <path d="M31 43c12-11 43-12 57 0l3 7H27Z" fill="#fff0f2" />
+  <g class="radish-eyes" fill="#fff">
+    <ellipse cx="46" cy="65" rx="4" ry="5" />
+    <ellipse cx="74" cy="65" rx="4" ry="5" />
+  </g>
+  <path d="M49 78q11 12 22 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+  <g fill="#ff8cac">
+    <ellipse cx="36" cy="75" rx="6" ry="3" />
+    <ellipse cx="83" cy="75" rx="6" ry="3" />
+  </g>
+</svg>

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { csv } from '../lib/csv.mjs';
 import { DatabaseSync } from 'node:sqlite';
-import { resolve } from 'node:path';
-mkdirSync('data', { recursive: true });
-const path = resolve('data/torob.db');
+import { resolve, dirname } from 'node:path';
+const path = resolve(process.env.CATALOG_DB_PATH || 'data/torob.db');
+mkdirSync(dirname(path), { recursive: true });
 if (existsSync(path) && !process.argv.includes('--force')) {
   console.log('Database exists. Use --force to rebuild.');
   process.exit(0);
